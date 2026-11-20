@@ -4,7 +4,8 @@ from fastapi import APIRouter,Depends,HTTPException
 from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import Payment,Service,Station,Ticket,TicketLine,User
+from app.models import Employee,Payment,Service,Station,Ticket,TicketLine,User
+from app.commissioning import accrue_commission
 from app.schemas.ticket import TicketCreate,TicketRead,PaymentCreate,PaymentRead
 router=APIRouter()
 def _ticket_read(ticket:Ticket,db:Session):
@@ -16,7 +17,7 @@ def _ticket_read(ticket:Ticket,db:Session):
         "vehicle_type":ticket.vehicle_type,"vehicle_registration":ticket.vehicle_registration,
         "subtotal":ticket.subtotal,"discount":ticket.discount,"total":ticket.total,"paid_amount":paid,
         "remaining_amount":ticket.total-paid,"status":ticket.status,"created_at":ticket.created_at,
-        "lines":lines,"payments":payments}
+        "lines":[{"id":x.id,"service_id":x.service_id,"service_code":x.service_code,"service_name":x.service_name,"quantity":x.quantity,"unit_price":x.unit_price,"line_total":x.line_total,"employee_id":x.employee_id} for x in lines],"payments":payments}
 def _visible_ticket(ticket_id:int,user:User,db:Session):
     q=db.query(Ticket).filter(Ticket.id==ticket_id,Ticket.company_id==user.company_id)
     if user.station_id is not None: q=q.filter(Ticket.station_id==user.station_id)
@@ -37,11 +38,16 @@ def create_ticket(payload:TicketCreate,user:User=Depends(get_current_user),db:Se
     lines=[]; subtotal=0
     for line in payload.lines:
         service=by_id[line.service_id]
+        employee=None
+        if line.employee_id is not None:
+            employee=db.query(Employee).filter(Employee.id==line.employee_id,Employee.company_id==user.company_id,
+                Employee.station_id==station.id,Employee.is_active.is_(True)).first()
+            if employee is None: raise HTTPException(422,"Le laveur est absent, inactif ou rattaché à une autre station")
         if service.station_id is not None and service.station_id!=station.id:
             raise HTTPException(422,f"La prestation {service.name} n'est pas disponible dans cette station")
         total=service.price*line.quantity; subtotal+=total
         lines.append(TicketLine(service_id=service.id,service_code=service.code,service_name=service.name,
-            quantity=line.quantity,unit_price=service.price,line_total=total))
+            quantity=line.quantity,unit_price=service.price,line_total=total,employee_id=employee.id if employee else None))
     now=datetime.now(timezone.utc)
     ticket=Ticket(company_id=user.company_id,station_id=station.id,
         ticket_number=f"ALM-{now:%Y%m%d}-{token_hex(4).upper()}",
@@ -50,6 +56,10 @@ def create_ticket(payload:TicketCreate,user:User=Depends(get_current_user),db:Se
         subtotal=subtotal,discount=0,total=subtotal,status="unpaid",created_by=user.id)
     db.add(ticket); db.flush()
     for line in lines: line.ticket_id=ticket.id; db.add(line)
+    db.flush()
+    for line in lines:
+        if line.employee_id is not None:
+            accrue_commission(db,ticket,line,employee_id=line.employee_id)
     db.commit(); db.refresh(ticket)
     return _ticket_read(ticket,db)
 @router.get("/tickets",response_model=list[TicketRead])
