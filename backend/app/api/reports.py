@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import Expense, ExpensePayment, FixedAsset, Payment, Station, Ticket, User
+from app.models import Expense, ExpensePayment, FixedAsset, Payment, TicketRefund, Station, Ticket, User
 
 router = APIRouter()
 
@@ -65,12 +65,17 @@ def _financial_data(period, start_date, end_date, station_id, user, db):
     tickets = _scope(db.query(Ticket), Ticket, user, station_id).filter(
         func.date(Ticket.created_at) >= start, func.date(Ticket.created_at) <= end
     ).order_by(Ticket.created_at.asc()).all()
-    revenue = sum(t.total for t in tickets)
-    collected = int(_scope(db.query(Payment), Payment, user, station_id).filter(
+    revenue = sum(t.total for t in tickets if t.status != "cancelled")
+    collected_gross = int(_scope(db.query(Payment), Payment, user, station_id).filter(
         Payment.created_at >= start_dt, Payment.created_at <= end_dt
     ).with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar() or 0)
+    refunds_q = _scope(db.query(TicketRefund), TicketRefund, user, station_id).filter(
+        TicketRefund.refunded_at >= start_dt, TicketRefund.refunded_at <= end_dt
+    )
+    refunds_total = int(refunds_q.with_entities(func.coalesce(func.sum(TicketRefund.amount), 0)).scalar() or 0)
+    collected = collected_gross - refunds_total
 
-    all_tickets = _scope(db.query(Ticket), Ticket, user, station_id).all()
+    all_tickets = _scope(db.query(Ticket), Ticket, user, station_id).filter(Ticket.status != "cancelled").all()
     all_ticket_ids = [t.id for t in all_tickets]
     paid_by_ticket = {}
     if all_ticket_ids:
@@ -112,15 +117,15 @@ def _financial_data(period, start_date, end_date, station_id, user, db):
 
     return {
         "period": period, "start_date": start, "end_date": end, "station_id": station_id or user.station_id,
-        "currency": "XOF", "revenue": revenue, "collections": collected,
+        "currency": "XOF", "revenue": revenue, "collections": collected, "refunds_total": refunds_total,
         "receivables_outstanding": receivables, "expenses_committed": committed,
         "expense_disbursements": disbursements, "expense_liabilities_for_period": expense_liabilities,
         "depreciation_charge": depreciation, "simplified_management_result": revenue - committed - depreciation,
-        "net_cash_flow": collected - disbursements, "tickets_count": len(tickets),
+        "net_cash_flow": collected - disbursements, "tickets_count": sum(1 for t in tickets if t.status != "cancelled"),
         "expenses_count": len(expenses), "assets_count": len(assets),
         "notes": [
             "Le chiffre d'affaires correspond aux tickets créés pendant la période.",
-            "Les encaissements et décaissements correspondent aux règlements réellement enregistrés pendant la période.",
+            "Les encaissements sont nets des remboursements enregistrés pendant la période.",
             "Les créances clients sont le solde impayé de tous les tickets visibles à la date du rapport.",
             "Les dettes de charges correspondent au solde des dépenses engagées pendant la période.",
             "Le résultat est un indicateur simplifié de gestion, non une comptabilité générale certifiée.",
@@ -168,7 +173,7 @@ def export_financial_report(
         summary.append(["Station", station_label])
         summary.append(["Indicateur", "Montant (FCFA)"])
         labels = [
-            ("Chiffre d'affaires", "revenue"), ("Encaissements", "collections"),
+            ("Chiffre d'affaires", "revenue"), ("Encaissements nets", "collections"), ("Remboursements", "refunds_total"),
             ("Créances clients", "receivables_outstanding"), ("Charges engagées", "expenses_committed"),
             ("Décaissements", "expense_disbursements"), ("Dettes de charges", "expense_liabilities_for_period"),
             ("Dotations aux amortissements", "depreciation_charge"),
@@ -220,7 +225,7 @@ def export_financial_report(
         Spacer(1, 8*mm)]
     rows = [["Indicateur", "Montant (FCFA)"]]
     for label, key in [
-        ("Chiffre d'affaires", "revenue"), ("Encaissements", "collections"),
+        ("Chiffre d'affaires", "revenue"), ("Encaissements nets", "collections"), ("Remboursements", "refunds_total"),
         ("Créances clients", "receivables_outstanding"), ("Charges engagées", "expenses_committed"),
         ("Décaissements", "expense_disbursements"), ("Dettes de charges", "expense_liabilities_for_period"),
         ("Dotations aux amortissements", "depreciation_charge"),
@@ -291,14 +296,21 @@ def station_profitability_report(
             func.date(Ticket.created_at) >= start,
             func.date(Ticket.created_at) <= end,
         ).all()
-        revenue = sum(ticket.total for ticket in tickets)
+        revenue = sum(ticket.total for ticket in tickets if ticket.status != "cancelled")
 
-        collections = int(db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        collections_gross = int(db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
             Payment.company_id == user.company_id,
             Payment.station_id == station.id,
             Payment.created_at >= start_dt,
             Payment.created_at <= end_dt,
         ).scalar() or 0)
+        refunds_total = int(db.query(func.coalesce(func.sum(TicketRefund.amount), 0)).filter(
+            TicketRefund.company_id == user.company_id,
+            TicketRefund.station_id == station.id,
+            TicketRefund.refunded_at >= start_dt,
+            TicketRefund.refunded_at <= end_dt,
+        ).scalar() or 0)
+        collections = collections_gross - refunds_total
 
         expenses = db.query(Expense).filter(
             Expense.company_id == user.company_id,
@@ -330,9 +342,10 @@ def station_profitability_report(
             "station_id": station.id,
             "station_name": station.name,
             "station_code": station.code,
-            "tickets_count": len(tickets),
+            "tickets_count": sum(1 for ticket in tickets if ticket.status != "cancelled"),
             "revenue": revenue,
             "collections": collections,
+            "refunds_total": refunds_total,
             "expenses_committed": committed,
             "expense_disbursements": disbursements,
             "depreciation_charge": depreciation,

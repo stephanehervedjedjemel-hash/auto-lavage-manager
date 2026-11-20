@@ -19,4 +19,4 @@ Les administrateurs d'entreprise peuvent consulter/ajouter des stations, créer 
 Depuis backend/ : pytest -q.
 
 ## Statut
-Version de développement. Les modules tickets, tarifs, caisse, dépenses et immobilisations, les permissions fines par station, audit sécurité et sauvegardes restent à développer avant toute utilisation réelle.
+Version de développement 0.6.0. Le module de commissions V0.6 permet d'affecter un laveur à une ligne de ticket, de paramétrer des barèmes fixes ou en pourcentage, de figer les commissions calculées et d'enregistrer des règlements partiels ou totaux. La migration Alembic `20261120_commissions` ajoute l'affectation du salarié et le registre des commissions. Le produit n'est pas prêt pour la production : les annulations/contrepassations, l'audit complet, les tests d'intégration et la validation CI restent obligatoires.

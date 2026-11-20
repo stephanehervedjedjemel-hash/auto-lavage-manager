@@ -11,12 +11,13 @@ from app.api.assets import router as assets_router
 from app.api.reports import router as reports_router
 from app.api.personnel import router as personnel_router
 from app.api.inventory import router as inventory_router
+from app.api.commissions import router as commissions_router
 from app.bootstrap import create_tables
 @asynccontextmanager
 async def lifespan(_:FastAPI):
     if settings.app_env=="development": create_tables()
     yield
-app=FastAPI(title="AUTO LAVAGE MANAGER API",version="0.5.0",
+app=FastAPI(title="AUTO LAVAGE MANAGER API",version="0.6.0",
   description="API SaaS multi-entreprises et multi-stations de lavage automobile.",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=settings.cors_origin_list,allow_credentials=True,
   allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type"])
@@ -29,7 +30,8 @@ app.include_router(assets_router,prefix="/api/v1",tags=["Immobilisations et amor
 app.include_router(reports_router,prefix="/api/v1",tags=["Tableau de bord financier et rapports"])
 app.include_router(personnel_router,prefix="/api/v1",tags=["Personnel et paie"])
 app.include_router(inventory_router,prefix="/api/v1",tags=["Stocks et fournisseurs"])
+app.include_router(commissions_router,prefix="/api/v1",tags=["Commissions des laveurs"])
 @app.get("/health",tags=["Système"])
-def health(): return {"status":"ok","application":"AUTO LAVAGE MANAGER","version":"0.5.0"}
+def health(): return {"status":"ok","application":"AUTO LAVAGE MANAGER","version":"0.6.0"}
 @app.get("/api/v1",tags=["Système"])
 def api_root(): return {"message":"Bienvenue dans AUTO LAVAGE MANAGER","currency":"XOF","language":"fr"}

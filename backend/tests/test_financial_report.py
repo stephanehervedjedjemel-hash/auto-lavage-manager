@@ -98,3 +98,46 @@ def test_station_profitability_report_compares_stations_and_isolates_tenants(cli
     other = _report_owner(client, "stationcompareother@example.com", "CMPX")
     foreign_station = client.get("/api/v1/stations", headers=other).json()[0]["id"]
     assert all(item["station_id"] != foreign_station for item in data["stations"])
+
+
+def test_cancelled_ticket_is_removed_from_revenue_and_refund_from_collections(client):
+    headers = _report_owner(client, "refundreport@example.com", "RFD1")
+    station_id = client.get("/api/v1/stations", headers=headers).json()[0]["id"]
+    service = client.post("/api/v1/services", headers=headers, json={
+        "code": "RFD-WASH", "name": "Lavage remboursable", "price": 12000,
+        "station_id": station_id,
+    })
+    assert service.status_code == 201, service.text
+    ticket = client.post("/api/v1/tickets", headers=headers, json={
+        "station_id": station_id, "vehicle_type": "Berline",
+        "lines": [{"service_id": service.json()["id"], "quantity": 1}],
+    })
+    assert ticket.status_code == 201, ticket.text
+    ticket_id = ticket.json()["id"]
+    payment = client.post(f"/api/v1/tickets/{ticket_id}/payments", headers=headers, json={
+        "amount": 10000, "method": "cash",
+    })
+    assert payment.status_code == 201, payment.text
+    cancelled = client.post(f"/api/v1/tickets/{ticket_id}/cancel", headers=headers, json={
+        "reason": "Prestation non réalisée",
+    })
+    assert cancelled.status_code == 200, cancelled.text
+
+    url = "/api/v1/reports/financial?period=custom&start_date=2026-11-20&end_date=2026-11-20"
+    report = client.get(url, headers=headers)
+    assert report.status_code == 200, report.text
+    data = report.json()
+    assert data["revenue"] == 0
+    assert data["collections"] == 0
+    assert data["refunds_total"] == 10000
+    assert data["receivables_outstanding"] == 0
+    assert data["tickets_count"] == 0
+
+    stations = client.get("/api/v1/reports/stations?period=custom&start_date=2026-11-20&end_date=2026-11-20",
+        headers=headers)
+    assert stations.status_code == 200, stations.text
+    row = stations.json()["stations"][0]
+    assert row["revenue"] == 0
+    assert row["collections"] == 0
+    assert row["refunds_total"] == 10000
+    assert row["tickets_count"] == 0

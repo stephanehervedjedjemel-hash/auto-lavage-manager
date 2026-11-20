@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 class TicketLineCreate(BaseModel):
     service_id:int=Field(gt=0)
+    employee_id:int|None=Field(default=None,gt=0)
     quantity:int=Field(ge=1,le=50)
 class TicketCreate(BaseModel):
     station_id:int=Field(gt=0)
@@ -23,6 +24,7 @@ class TicketLineRead(BaseModel):
     quantity:int
     unit_price:int
     line_total:int
+    employee_id:int|None=None
 class PaymentRead(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:int
@@ -30,6 +32,16 @@ class PaymentRead(BaseModel):
     method:str
     reference:str|None
     created_at:object
+class TicketRefundRead(BaseModel):
+    model_config=ConfigDict(from_attributes=True)
+    id: int
+    payment_id: int
+    amount: int
+    method: str
+    reference: str | None
+    reason: str
+    refunded_at: object
+
 class TicketRead(BaseModel):
     id:int
     company_id:int
@@ -48,3 +60,5 @@ class TicketRead(BaseModel):
     created_at:object
     lines:list[TicketLineRead]
     payments:list[PaymentRead]
+    refunds:list[TicketRefundRead]=[]
+    refunded_amount:int=0

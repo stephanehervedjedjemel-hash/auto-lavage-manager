@@ -15,6 +15,11 @@ jobs:
       - run: pip install -r backend/requirements.txt
       - run: pytest -q
         working-directory: backend
+      - name: Validate fresh database migration
+        run: alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:///./migration_test.db
   frontend:
     runs-on: ubuntu-latest
     steps:
