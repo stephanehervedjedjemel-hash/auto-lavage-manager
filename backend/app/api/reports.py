@@ -296,14 +296,21 @@ def station_profitability_report(
             func.date(Ticket.created_at) >= start,
             func.date(Ticket.created_at) <= end,
         ).all()
-        revenue = sum(ticket.total for ticket in tickets)
+        revenue = sum(ticket.total for ticket in tickets if ticket.status != "cancelled")
 
-        collections = int(db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        collections_gross = int(db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
             Payment.company_id == user.company_id,
             Payment.station_id == station.id,
             Payment.created_at >= start_dt,
             Payment.created_at <= end_dt,
         ).scalar() or 0)
+        refunds_total = int(db.query(func.coalesce(func.sum(TicketRefund.amount), 0)).filter(
+            TicketRefund.company_id == user.company_id,
+            TicketRefund.station_id == station.id,
+            TicketRefund.refunded_at >= start_dt,
+            TicketRefund.refunded_at <= end_dt,
+        ).scalar() or 0)
+        collections = collections_gross - refunds_total
 
         expenses = db.query(Expense).filter(
             Expense.company_id == user.company_id,
@@ -335,9 +342,10 @@ def station_profitability_report(
             "station_id": station.id,
             "station_name": station.name,
             "station_code": station.code,
-            "tickets_count": len(tickets),
+            "tickets_count": sum(1 for ticket in tickets if ticket.status != "cancelled"),
             "revenue": revenue,
             "collections": collections,
+            "refunds_total": refunds_total,
             "expenses_committed": committed,
             "expense_disbursements": disbursements,
             "depreciation_charge": depreciation,
