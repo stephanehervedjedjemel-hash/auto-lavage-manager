@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.tenants import router as tenants_router
 from app.api.services import router as services_router
-from app.api.tickets import router as tickets_router\nfrom app.api.cash import router as cash_router
+from app.api.tickets import router as tickets_router
+from app.api.cash import router as cash_router
 from app.bootstrap import create_tables
 @asynccontextmanager
 async def lifespan(_:FastAPI):
@@ -16,7 +17,8 @@ app.add_middleware(CORSMiddleware,allow_origins=settings.cors_origin_list,allow_
   allow_methods=["GET","POST","PUT","PATCH","DELETE"],allow_headers=["Authorization","Content-Type"])
 app.include_router(tenants_router,prefix="/api/v1",tags=["Entreprises, stations et authentification"])
 app.include_router(services_router,prefix="/api/v1",tags=["Prestations et tarifs"])
-app.include_router(tickets_router,prefix="/api/v1",tags=["Tickets et encaissements"])\napp.include_router(cash_router,prefix="/api/v1",tags=["Caisse et recettes"])
+app.include_router(tickets_router,prefix="/api/v1",tags=["Tickets et encaissements"])
+app.include_router(cash_router,prefix="/api/v1",tags=["Caisse et recettes"])
 @app.get("/health",tags=["Système"])
 def health(): return {"status":"ok","application":"AUTO LAVAGE MANAGER","version":"0.4.0"}
 @app.get("/api/v1",tags=["Système"])
