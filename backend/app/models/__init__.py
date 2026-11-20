@@ -119,3 +119,34 @@ class CashMovement(Base):
     amount: Mapped[int]=mapped_column(Integer,nullable=False)
     reason: Mapped[str]=mapped_column(String(180),nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+from datetime import date
+
+class Expense(Base):
+    __tablename__="expenses"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    category: Mapped[str]=mapped_column(String(40),nullable=False)
+    label: Mapped[str]=mapped_column(String(180),nullable=False)
+    vendor: Mapped[str|None]=mapped_column(String(160))
+    description: Mapped[str|None]=mapped_column(String(500))
+    expense_date: Mapped[date]=mapped_column(Date,nullable=False,index=True)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    receipt_name: Mapped[str|None]=mapped_column(String(255))
+    receipt_url: Mapped[str|None]=mapped_column(String(500))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class ExpensePayment(Base):
+    __tablename__="expense_payments"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    expense_id: Mapped[int]=mapped_column(ForeignKey("expenses.id",ondelete="RESTRICT"),index=True,nullable=False)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    paid_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    method: Mapped[str]=mapped_column(String(30),nullable=False)
+    reference: Mapped[str|None]=mapped_column(String(100))
+    paid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
