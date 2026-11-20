@@ -91,3 +91,31 @@ class Payment(Base):
     reference: Mapped[str|None]=mapped_column(String(100))
     received_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class CashSession(Base):
+    __tablename__="cash_sessions"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    opened_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    closed_by: Mapped[int|None]=mapped_column(ForeignKey("users.id"),nullable=True)
+    opening_amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    closing_amount: Mapped[int|None]=mapped_column(Integer,nullable=True)
+    expected_amount: Mapped[int|None]=mapped_column(Integer,nullable=True)
+    difference: Mapped[int|None]=mapped_column(Integer,nullable=True)
+    status: Mapped[str]=mapped_column(String(20),default="open",nullable=False)
+    opened_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    closed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True)
+
+class CashMovement(Base):
+    __tablename__="cash_movements"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    session_id: Mapped[int]=mapped_column(ForeignKey("cash_sessions.id",ondelete="RESTRICT"),index=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    direction: Mapped[str]=mapped_column(String(10),nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    reason: Mapped[str]=mapped_column(String(180),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
