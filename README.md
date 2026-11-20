@@ -1,18 +1,22 @@
 # AUTO LAVAGE MANAGER
-Logiciel SaaS de gestion multi-entreprises et multi-stations pour centres de lavage automobile.
+Logiciel SaaS multi-entreprises et multi-stations pour centres de lavage automobile.
 
 ## Stack
-React + Vite; API Python/FastAPI; PostgreSQL + SQLAlchemy; JWT HS256 et hachage scrypt; Docker Compose.
+React + Vite; API Python/FastAPI; PostgreSQL + SQLAlchemy; JWT; Docker Compose.
 
-## Démarrage local
-1. Copier .env.example vers .env.
-2. Remplacer les secrets POSTGRES_PASSWORD, JWT_SECRET et BOOTSTRAP_SECRET par des valeurs longues et aléatoires.
-3. Lancer docker compose up --build.
-4. API : http://localhost:8000 ; documentation : http://localhost:8000/docs.
-5. En développement les tables sont créées automatiquement. En production, utiliser Alembic.
+## Démarrage
+1. Copier .env.example vers .env et remplacer tous les secrets d'exemple.
+2. Lancer docker compose up --build.
+3. Interface : http://localhost:5173 ; API : http://localhost:8000 ; documentation : http://localhost:8000/docs.
+4. En production ou préproduction, appliquer les migrations depuis le dossier backend avec alembic upgrade head.
 
-La route POST /api/v1/auth/register-owner initialise l'entreprise, la première station et le compte propriétaire avec BOOTSTRAP_SECRET. Puis POST /api/v1/auth/login permet de se connecter.
+## Première connexion
+L'interface permet de créer le premier espace entreprise. Le code d'initialisation correspond à BOOTSTRAP_SECRET dans le fichier .env. La création initialise l'entreprise, une première station et son administrateur. Les connexions suivantes se font avec l'e-mail et le mot de passe.
 
-Tests : depuis backend/, exécuter pytest -q.
+Les administrateurs d'entreprise peuvent consulter/ajouter des stations, créer des comptes utilisateurs et activer/désactiver ces comptes. Les utilisateurs sont rattachés à leur entreprise; un utilisateur de station ne voit que sa station dans la liste des stations.
 
-Socle de développement uniquement. Migrations, tests d'isolation, audit, journalisation, sauvegardes et déploiement restent à finaliser avant usage réel.
+## Tests
+Depuis backend/ : pytest -q.
+
+## Statut
+Version de développement. Les modules tickets, tarifs, caisse, dépenses et immobilisations, les permissions fines par station, audit sécurité et sauvegardes restent à développer avant toute utilisation réelle.
