@@ -260,3 +260,102 @@ def export_financial_report(
     output.seek(0)
     return StreamingResponse(output, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'})
+
+
+@router.get("/reports/stations")
+def station_profitability_report(
+    period: Literal["day", "week", "month", "year", "custom"] = "month",
+    start_date: date | None = None,
+    end_date: date | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Compare les indicateurs financiers des stations visibles par l'utilisateur."""
+    start, end = _period_dates(period, start_date, end_date)
+    start_dt = datetime.combine(start, time.min)
+    end_dt = datetime.combine(end, time.max)
+
+    stations_query = db.query(Station).filter(
+        Station.company_id == user.company_id,
+        Station.is_active.is_(True),
+    )
+    if user.station_id is not None:
+        stations_query = stations_query.filter(Station.id == user.station_id)
+    stations = stations_query.order_by(Station.name.asc()).all()
+
+    results = []
+    for station in stations:
+        tickets = db.query(Ticket).filter(
+            Ticket.company_id == user.company_id,
+            Ticket.station_id == station.id,
+            func.date(Ticket.created_at) >= start,
+            func.date(Ticket.created_at) <= end,
+        ).all()
+        revenue = sum(ticket.total for ticket in tickets)
+
+        collections = int(db.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+            Payment.company_id == user.company_id,
+            Payment.station_id == station.id,
+            Payment.created_at >= start_dt,
+            Payment.created_at <= end_dt,
+        ).scalar() or 0)
+
+        expenses = db.query(Expense).filter(
+            Expense.company_id == user.company_id,
+            Expense.station_id == station.id,
+            Expense.expense_date >= start,
+            Expense.expense_date <= end,
+        ).all()
+        committed = sum(expense.amount for expense in expenses)
+
+        disbursements = int(db.query(func.coalesce(func.sum(ExpensePayment.amount), 0)).filter(
+            ExpensePayment.company_id == user.company_id,
+            ExpensePayment.station_id == station.id,
+            ExpensePayment.paid_at >= start_dt,
+            ExpensePayment.paid_at <= end_dt,
+        ).scalar() or 0)
+
+        assets = db.query(FixedAsset).filter(
+            FixedAsset.company_id == user.company_id,
+            FixedAsset.station_id == station.id,
+            FixedAsset.status == "active",
+        ).all()
+        before = start - timedelta(days=1)
+        depreciation = sum(
+            max(_asset_accumulated(asset, end) - _asset_accumulated(asset, before), 0)
+            for asset in assets
+        )
+
+        results.append({
+            "station_id": station.id,
+            "station_name": station.name,
+            "station_code": station.code,
+            "tickets_count": len(tickets),
+            "revenue": revenue,
+            "collections": collections,
+            "expenses_committed": committed,
+            "expense_disbursements": disbursements,
+            "depreciation_charge": depreciation,
+            "simplified_management_result": revenue - committed - depreciation,
+            "net_cash_flow": collections - disbursements,
+            "assets_count": len(assets),
+            "asset_net_book_value": sum(
+                max(asset.acquisition_cost - _asset_accumulated(asset, end), asset.residual_value)
+                for asset in assets
+            ),
+        })
+
+    return {
+        "period": period,
+        "start_date": start,
+        "end_date": end,
+        "currency": "XOF",
+        "stations_count": len(results),
+        "stations": results,
+        "notes": [
+            "Le résultat simplifié correspond au chiffre d'affaires moins les charges engagées et les dotations aux amortissements.",
+            "Le flux net correspond aux encaissements moins les décaissements de dépenses ; il ne représente pas un solde de caisse ou bancaire.",
+            "Les immobilisations partagées entre plusieurs stations ne sont pas réparties automatiquement.",
+            "Les indicateurs sont des données de gestion et ne constituent pas une comptabilité certifiée.",
+        ],
+    }
