@@ -77,5 +77,9 @@ def update_user_status(user_id:int,payload:UserStatusUpdate,user:User=Depends(re
     target=db.query(User).filter(User.id==user_id,User.company_id==user.company_id).first()
     if target is None: raise HTTPException(404,"Utilisateur introuvable")
     if target.id==user.id and not payload.is_active: raise HTTPException(400,"Vous ne pouvez pas désactiver votre propre compte")
+    if target.role=="company_admin" and not payload.is_active:
+        other_admins=db.query(User).filter(User.company_id==user.company_id,User.role=="company_admin",
+            User.is_active.is_(True),User.id!=target.id).count()
+        if other_admins==0: raise HTTPException(400,"Conservez au moins un administrateur actif dans l'entreprise")
     target.is_active=payload.is_active
     db.commit(); db.refresh(target); return target
