@@ -75,6 +75,7 @@ class TicketLine(Base):
     id: Mapped[int]=mapped_column(Integer,primary_key=True)
     ticket_id: Mapped[int]=mapped_column(ForeignKey("tickets.id",ondelete="CASCADE"),index=True,nullable=False)
     service_id: Mapped[int]=mapped_column(ForeignKey("services.id"),nullable=False)
+    employee_id: Mapped[int|None]=mapped_column(ForeignKey("employees.id",ondelete="RESTRICT"),index=True,nullable=True)
     service_code: Mapped[str]=mapped_column(String(40),nullable=False)
     service_name: Mapped[str]=mapped_column(String(160),nullable=False)
     quantity: Mapped[int]=mapped_column(Integer,nullable=False)
@@ -336,3 +337,53 @@ class StockMovement(Base):
     reference: Mapped[str|None]=mapped_column(String(100))
     note: Mapped[str|None]=mapped_column(String(500))
     moved_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class CommissionRule(Base):
+    __tablename__="commission_rules"
+    __table_args__=(UniqueConstraint("company_id","code",name="uq_commission_rule_company_code"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int|None]=mapped_column(ForeignKey("stations.id",ondelete="CASCADE"),index=True,nullable=True)
+    employee_id: Mapped[int|None]=mapped_column(ForeignKey("employees.id",ondelete="CASCADE"),index=True,nullable=True)
+    service_id: Mapped[int|None]=mapped_column(ForeignKey("services.id",ondelete="CASCADE"),index=True,nullable=True)
+    code: Mapped[str]=mapped_column(String(40),nullable=False)
+    name: Mapped[str]=mapped_column(String(160),nullable=False)
+    calculation_type: Mapped[str]=mapped_column(String(20),nullable=False)
+    value: Mapped[int]=mapped_column(Integer,nullable=False)
+    effective_from: Mapped[date]=mapped_column(Date,nullable=False)
+    effective_to: Mapped[date|None]=mapped_column(Date)
+    is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class CommissionEntry(Base):
+    __tablename__="commission_entries"
+    __table_args__=(UniqueConstraint("ticket_line_id",name="uq_commission_ticket_line"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    ticket_id: Mapped[int]=mapped_column(ForeignKey("tickets.id",ondelete="RESTRICT"),index=True,nullable=False)
+    ticket_line_id: Mapped[int]=mapped_column(ForeignKey("ticket_lines.id",ondelete="RESTRICT"),index=True,nullable=False)
+    employee_id: Mapped[int]=mapped_column(ForeignKey("employees.id",ondelete="RESTRICT"),index=True,nullable=False)
+    rule_id: Mapped[int|None]=mapped_column(ForeignKey("commission_rules.id",ondelete="SET NULL"),nullable=True)
+    employee_name: Mapped[str]=mapped_column(String(180),nullable=False)
+    service_name: Mapped[str]=mapped_column(String(160),nullable=False)
+    basis_amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    calculation_type: Mapped[str]=mapped_column(String(20),nullable=False)
+    rule_value: Mapped[int]=mapped_column(Integer,nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    status: Mapped[str]=mapped_column(String(20),default="earned",nullable=False)
+    earned_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class CommissionPayment(Base):
+    __tablename__="commission_payments"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    commission_entry_id: Mapped[int]=mapped_column(ForeignKey("commission_entries.id",ondelete="RESTRICT"),index=True,nullable=False)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    paid_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    method: Mapped[str]=mapped_column(String(30),nullable=False)
+    reference: Mapped[str|None]=mapped_column(String(100))
+    paid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
