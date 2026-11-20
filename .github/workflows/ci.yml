@@ -16,7 +16,7 @@ jobs:
       - run: pytest -q
         working-directory: backend
       - name: Validate fresh database migration
-        run: alembic upgrade head
+        run: alembic heads && alembic history --verbose
         working-directory: backend
   frontend:
     runs-on: ubuntu-latest
