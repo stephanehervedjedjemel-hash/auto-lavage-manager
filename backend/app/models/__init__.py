@@ -238,3 +238,21 @@ class PayrollPayment(Base):
     method: Mapped[str]=mapped_column(String(30),nullable=False)
     reference: Mapped[str|None]=mapped_column(String(100))
     paid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class AttendanceRecord(Base):
+    __tablename__="attendance_records"
+    __table_args__=(UniqueConstraint("company_id","employee_id","work_date",name="uq_attendance_employee_day"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    employee_id: Mapped[int]=mapped_column(ForeignKey("employees.id",ondelete="RESTRICT"),index=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    work_date: Mapped[date]=mapped_column(Date,index=True,nullable=False)
+    status: Mapped[str]=mapped_column(String(20),nullable=False)
+    regular_hours: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    overtime_hours: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    late_minutes: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    leave_type: Mapped[str|None]=mapped_column(String(30))
+    note: Mapped[str|None]=mapped_column(String(500))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import Employee, PayrollPeriod, PayrollLine, PayrollPayment, Station, User
+from app.models import Employee, PayrollPeriod, PayrollLine, PayrollPayment, AttendanceRecord, Station, User
 
 router=APIRouter()
 MANAGERS={"company_admin","station_manager"}
@@ -192,3 +192,90 @@ def pay_payroll_line(line_id:int,payload:PayrollPaymentCreate,user:User=Depends(
         period.status="paid"
     db.commit();db.refresh(line)
     return _line_data(line,db)
+
+
+class AttendanceCreate(BaseModel):
+    employee_id:int=Field(gt=0)
+    work_date:date
+    status:Literal["present","absent","leave","permission","rest"]="present"
+    regular_hours:int=Field(default=0,ge=0,le=24)
+    overtime_hours:int=Field(default=0,ge=0,le=24)
+    late_minutes:int=Field(default=0,ge=0,le=1440)
+    leave_type:Literal["annual","sick","exceptional","unpaid","other"]|None=None
+    note:str|None=Field(default=None,max_length=500)
+    @model_validator(mode="after")
+    def validate_record(self):
+        if self.status!="present" and (self.regular_hours or self.overtime_hours or self.late_minutes):
+            raise ValueError("Les heures et retards ne sont renseignés que pour une présence")
+        if self.status!="leave" and self.leave_type is not None:
+            raise ValueError("Le type de congé ne concerne qu'une absence pour congé")
+        return self
+
+def _attendance_data(row,employee):
+    return {"id":row.id,"employee_id":row.employee_id,"employee_number":employee.employee_number,
+      "employee_name":employee.full_name,"job_title":employee.job_title,"station_id":row.station_id,
+      "work_date":row.work_date,"status":row.status,"regular_hours":row.regular_hours,
+      "overtime_hours":row.overtime_hours,"late_minutes":row.late_minutes,
+      "leave_type":row.leave_type,"note":row.note,"created_at":row.created_at}
+
+@router.get("/attendance")
+def list_attendance(start_date:date|None=None,end_date:date|None=None,station_id:int|None=None,
+                    employee_id:int|None=None,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    q=db.query(AttendanceRecord,Employee).join(Employee,Employee.id==AttendanceRecord.employee_id).filter(
+      AttendanceRecord.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(AttendanceRecord.station_id==user.station_id)
+    elif station_id is not None:q=q.filter(AttendanceRecord.station_id==station_id)
+    if start_date:q=q.filter(AttendanceRecord.work_date>=start_date)
+    if end_date:q=q.filter(AttendanceRecord.work_date<=end_date)
+    if employee_id:q=q.filter(AttendanceRecord.employee_id==employee_id)
+    return [_attendance_data(r,e) for r,e in q.order_by(AttendanceRecord.work_date.desc(),Employee.full_name).limit(1000).all()]
+
+@router.get("/attendance/summary")
+def attendance_summary(start_date:date|None=None,end_date:date|None=None,station_id:int|None=None,
+                       user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    q=db.query(AttendanceRecord).filter(AttendanceRecord.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(AttendanceRecord.station_id==user.station_id)
+    elif station_id is not None:q=q.filter(AttendanceRecord.station_id==station_id)
+    if start_date:q=q.filter(AttendanceRecord.work_date>=start_date)
+    if end_date:q=q.filter(AttendanceRecord.work_date<=end_date)
+    rows=q.all()
+    return {"records_count":len(rows),"present_count":sum(x.status=="present" for x in rows),
+      "absent_count":sum(x.status=="absent" for x in rows),"leave_count":sum(x.status=="leave" for x in rows),
+      "permission_count":sum(x.status=="permission" for x in rows),"rest_count":sum(x.status=="rest" for x in rows),
+      "overtime_hours":sum(x.overtime_hours for x in rows),"late_minutes":sum(x.late_minutes for x in rows)}
+
+@router.post("/attendance",status_code=201)
+def create_attendance(payload:AttendanceCreate,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    if user.role not in MANAGERS:raise HTTPException(403,"Droits de gestion du pointage requis")
+    q=db.query(Employee).filter(Employee.id==payload.employee_id,Employee.company_id==user.company_id,
+      Employee.is_active.is_(True))
+    if user.station_id is not None:q=q.filter(Employee.station_id==user.station_id)
+    employee=q.first()
+    if not employee:raise HTTPException(404,"Salarié actif introuvable ou non autorisé")
+    if db.query(AttendanceRecord).filter(AttendanceRecord.company_id==user.company_id,
+      AttendanceRecord.employee_id==employee.id,AttendanceRecord.work_date==payload.work_date).first():
+        raise HTTPException(409,"Un pointage existe déjà pour ce salarié à cette date")
+    row=AttendanceRecord(company_id=user.company_id,station_id=employee.station_id,employee_id=employee.id,
+      created_by=user.id,work_date=payload.work_date,status=payload.status,regular_hours=payload.regular_hours,
+      overtime_hours=payload.overtime_hours,late_minutes=payload.late_minutes,leave_type=payload.leave_type,note=payload.note)
+    db.add(row);db.commit();db.refresh(row)
+    return _attendance_data(row,employee)
+
+@router.patch("/attendance/{record_id}")
+def update_attendance(record_id:int,payload:AttendanceCreate,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    if user.role not in MANAGERS:raise HTTPException(403,"Droits de correction du pointage requis")
+    q=db.query(AttendanceRecord).filter(AttendanceRecord.id==record_id,AttendanceRecord.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(AttendanceRecord.station_id==user.station_id)
+    row=q.first()
+    if not row:raise HTTPException(404,"Pointage introuvable")
+    employee=db.query(Employee).filter(Employee.id==payload.employee_id,Employee.company_id==user.company_id,
+      Employee.station_id==row.station_id).first()
+    if not employee:raise HTTPException(422,"Le salarié doit appartenir à la même station")
+    duplicate=db.query(AttendanceRecord).filter(AttendanceRecord.company_id==user.company_id,
+      AttendanceRecord.employee_id==employee.id,AttendanceRecord.work_date==payload.work_date,
+      AttendanceRecord.id!=row.id).first()
+    if duplicate:raise HTTPException(409,"Un pointage existe déjà pour ce salarié à cette date")
+    for key in ("employee_id","work_date","status","regular_hours","overtime_hours","late_minutes","leave_type","note"):
+        setattr(row,key,getattr(payload,key))
+    db.commit();db.refresh(row)
+    return _attendance_data(row,employee)
