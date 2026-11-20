@@ -10,6 +10,7 @@ from app.api.expenses import router as expenses_router
 from app.api.assets import router as assets_router
 from app.api.reports import router as reports_router
 from app.api.personnel import router as personnel_router
+from app.api.inventory import router as inventory_router
 from app.bootstrap import create_tables
 @asynccontextmanager
 async def lifespan(_:FastAPI):
@@ -27,6 +28,7 @@ app.include_router(expenses_router,prefix="/api/v1",tags=["Dépenses et charges"
 app.include_router(assets_router,prefix="/api/v1",tags=["Immobilisations et amortissements"])
 app.include_router(reports_router,prefix="/api/v1",tags=["Tableau de bord financier et rapports"])
 app.include_router(personnel_router,prefix="/api/v1",tags=["Personnel et paie"])
+app.include_router(inventory_router,prefix="/api/v1",tags=["Stocks et fournisseurs"])
 @app.get("/health",tags=["Système"])
 def health(): return {"status":"ok","application":"AUTO LAVAGE MANAGER","version":"0.5.0"}
 @app.get("/api/v1",tags=["Système"])

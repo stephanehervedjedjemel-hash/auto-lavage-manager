@@ -285,3 +285,54 @@ class AdvanceRepayment(Base):
     reference: Mapped[str|None]=mapped_column(String(100))
     note: Mapped[str|None]=mapped_column(String(500))
     repaid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class Supplier(Base):
+    __tablename__="suppliers"
+    __table_args__=(UniqueConstraint("company_id","name",name="uq_supplier_company_name"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    name: Mapped[str]=mapped_column(String(180),nullable=False)
+    phone: Mapped[str|None]=mapped_column(String(40))
+    email: Mapped[str|None]=mapped_column(String(255))
+    address: Mapped[str|None]=mapped_column(String(255))
+    is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class InventoryProduct(Base):
+    __tablename__="inventory_products"
+    __table_args__=(UniqueConstraint("company_id","sku",name="uq_inventory_product_company_sku"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    sku: Mapped[str]=mapped_column(String(60),nullable=False)
+    name: Mapped[str]=mapped_column(String(180),nullable=False)
+    category: Mapped[str]=mapped_column(String(60),nullable=False)
+    unit: Mapped[str]=mapped_column(String(20),default="unite",nullable=False)
+    minimum_stock: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class SupplierProductPrice(Base):
+    __tablename__="supplier_product_prices"
+    __table_args__=(UniqueConstraint("supplier_id","product_id",name="uq_supplier_product_price"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    supplier_id: Mapped[int]=mapped_column(ForeignKey("suppliers.id",ondelete="RESTRICT"),index=True,nullable=False)
+    product_id: Mapped[int]=mapped_column(ForeignKey("inventory_products.id",ondelete="RESTRICT"),index=True,nullable=False)
+    purchase_price: Mapped[int]=mapped_column(Integer,nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now(),onupdate=func.now())
+
+class StockMovement(Base):
+    __tablename__="stock_movements"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    product_id: Mapped[int]=mapped_column(ForeignKey("inventory_products.id",ondelete="RESTRICT"),index=True,nullable=False)
+    supplier_id: Mapped[int|None]=mapped_column(ForeignKey("suppliers.id",ondelete="RESTRICT"))
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    movement_type: Mapped[str]=mapped_column(String(20),nullable=False)
+    quantity: Mapped[int]=mapped_column(Integer,nullable=False)
+    unit_cost: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    reference: Mapped[str|None]=mapped_column(String(100))
+    note: Mapped[str|None]=mapped_column(String(500))
+    moved_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
