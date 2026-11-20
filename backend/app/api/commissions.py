@@ -55,7 +55,7 @@ def _entry_data(entry: CommissionEntry, db: Session):
         "employee_name": entry.employee_name, "service_name": entry.service_name,
         "basis_amount": entry.basis_amount, "calculation_type": entry.calculation_type,
         "rule_value": entry.rule_value, "amount": entry.amount, "paid_amount": paid,
-        "remaining_amount": entry.amount - paid, "status": "paid" if paid == entry.amount else ("partial" if paid else "earned"),
+        "remaining_amount": 0 if entry.status == "cancelled" else entry.amount - paid, "status": "cancelled" if entry.status == "cancelled" else ("paid" if paid == entry.amount else ("partial" if paid else "earned")),
         "earned_at": entry.earned_at,
     }
 
