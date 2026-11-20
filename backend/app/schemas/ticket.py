@@ -24,6 +24,7 @@ class TicketLineRead(BaseModel):
     quantity:int
     unit_price:int
     line_total:int
+    employee_id:int|None=None
 class PaymentRead(BaseModel):
     model_config=ConfigDict(from_attributes=True)
     id:int
