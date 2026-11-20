@@ -150,3 +150,25 @@ class ExpensePayment(Base):
     method: Mapped[str]=mapped_column(String(30),nullable=False)
     reference: Mapped[str|None]=mapped_column(String(100))
     paid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class FixedAsset(Base):
+    __tablename__="fixed_assets"
+    __table_args__=(UniqueConstraint("company_id","asset_code",name="uq_asset_company_code"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    asset_code: Mapped[str]=mapped_column(String(50),nullable=False)
+    name: Mapped[str]=mapped_column(String(180),nullable=False)
+    category: Mapped[str]=mapped_column(String(60),nullable=False)
+    description: Mapped[str|None]=mapped_column(String(500))
+    supplier: Mapped[str|None]=mapped_column(String(160))
+    acquisition_date: Mapped[date]=mapped_column(Date,nullable=False)
+    in_service_date: Mapped[date]=mapped_column(Date,nullable=False)
+    acquisition_cost: Mapped[int]=mapped_column(Integer,nullable=False)
+    residual_value: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    useful_life_months: Mapped[int]=mapped_column(Integer,nullable=False)
+    depreciation_method: Mapped[str]=mapped_column(String(30),default="straight_line",nullable=False)
+    status: Mapped[str]=mapped_column(String(20),default="active",nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
