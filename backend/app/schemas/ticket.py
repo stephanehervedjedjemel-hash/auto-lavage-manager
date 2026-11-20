@@ -32,6 +32,16 @@ class PaymentRead(BaseModel):
     method:str
     reference:str|None
     created_at:object
+class TicketRefundRead(BaseModel):
+    model_config=ConfigDict(from_attributes=True)
+    id: int
+    payment_id: int
+    amount: int
+    method: str
+    reference: str | None
+    reason: str
+    refunded_at: object
+
 class TicketRead(BaseModel):
     id:int
     company_id:int
@@ -50,6 +60,8 @@ class TicketRead(BaseModel):
     created_at:object
     lines:list[TicketLineRead]
     payments:list[PaymentRead]
+    refunds:list[TicketRefundRead]=[]
+    refunded_amount:int=0
 
 
 class TicketRefundRead(BaseModel):
