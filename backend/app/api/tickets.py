@@ -1,10 +1,12 @@
 from datetime import datetime,timezone
 from secrets import token_hex
 from fastapi import APIRouter,Depends,HTTPException
+from pydantic import BaseModel,Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import Employee,Payment,Service,Station,Ticket,TicketLine,User
+from app.models import CommissionEntry,CommissionPayment,Employee,Payment,Service,Station,Ticket,TicketLine,TicketRefund,User
 from app.commissioning import accrue_commission
 from app.schemas.ticket import TicketCreate,TicketRead,PaymentCreate,PaymentRead
 router=APIRouter()
@@ -17,7 +19,7 @@ def _ticket_read(ticket:Ticket,db:Session):
         "vehicle_type":ticket.vehicle_type,"vehicle_registration":ticket.vehicle_registration,
         "subtotal":ticket.subtotal,"discount":ticket.discount,"total":ticket.total,"paid_amount":paid,
         "remaining_amount":ticket.total-paid,"status":ticket.status,"created_at":ticket.created_at,
-        "lines":[{"id":x.id,"service_id":x.service_id,"service_code":x.service_code,"service_name":x.service_name,"quantity":x.quantity,"unit_price":x.unit_price,"line_total":x.line_total,"employee_id":x.employee_id} for x in lines],"payments":payments}
+        "lines":[{"id":x.id,"service_id":x.service_id,"service_code":x.service_code,"service_name":x.service_name,"quantity":x.quantity,"unit_price":x.unit_price,"line_total":x.line_total,"employee_id":x.employee_id} for x in lines],"payments":payments,"refunds":db.query(TicketRefund).filter(TicketRefund.ticket_id==ticket.id).order_by(TicketRefund.id).all(),"refunded_amount":db.query(func.coalesce(func.sum(TicketRefund.amount),0)).filter(TicketRefund.ticket_id==ticket.id).scalar() or 0}
 def _visible_ticket(ticket_id:int,user:User,db:Session):
     q=db.query(Ticket).filter(Ticket.id==ticket_id,Ticket.company_id==user.company_id)
     if user.station_id is not None: q=q.filter(Ticket.station_id==user.station_id)
@@ -85,3 +87,45 @@ def add_payment(ticket_id:int,payload:PaymentCreate,user:User=Depends(get_curren
     ticket.status="paid" if payload.amount==remaining else "partial"
     db.commit(); db.refresh(payment)
     return payment
+
+
+class TicketCancellation(BaseModel):
+    reason: str = Field(min_length=5, max_length=250)
+
+
+@router.post("/tickets/{ticket_id}/cancel", response_model=TicketRead)
+def cancel_ticket(ticket_id: int, payload: TicketCancellation,
+                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.role not in {"company_admin", "station_manager"}:
+        raise HTTPException(403, "Seuls les responsables peuvent annuler un ticket")
+    ticket = _visible_ticket(ticket_id, user, db)
+    if ticket.status == "cancelled":
+        raise HTTPException(409, "Ce ticket est déjà annulé")
+
+    entries = db.query(CommissionEntry).filter(
+        CommissionEntry.ticket_id == ticket.id,
+        CommissionEntry.company_id == user.company_id,
+    ).with_for_update().all()
+    for entry in entries:
+        paid = db.query(func.coalesce(func.sum(CommissionPayment.amount), 0)).filter(
+            CommissionPayment.commission_entry_id == entry.id
+        ).scalar() or 0
+        if paid:
+            raise HTTPException(409, "Une commission a déjà été réglée. Effectuez d'abord une régularisation de commission.")
+
+    payments = db.query(Payment).filter(
+        Payment.ticket_id == ticket.id, Payment.company_id == user.company_id,
+        Payment.station_id == ticket.station_id,
+    ).order_by(Payment.id).all()
+    for payment in payments:
+        db.add(TicketRefund(
+            ticket_id=ticket.id, payment_id=payment.id, company_id=user.company_id,
+            station_id=ticket.station_id, amount=payment.amount, method=payment.method,
+            reference=payment.reference, reason=payload.reason.strip(), refunded_by=user.id,
+        ))
+    for entry in entries:
+        entry.status = "cancelled"
+    ticket.status = "cancelled"
+    db.commit()
+    db.refresh(ticket)
+    return _ticket_read(ticket, db)
