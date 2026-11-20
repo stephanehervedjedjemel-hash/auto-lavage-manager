@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 class TicketLineCreate(BaseModel):
     service_id:int=Field(gt=0)
+    employee_id:int|None=Field(default=None,gt=0)
     quantity:int=Field(ge=1,le=50)
 class TicketCreate(BaseModel):
     station_id:int=Field(gt=0)
