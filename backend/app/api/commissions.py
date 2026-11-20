@@ -128,8 +128,8 @@ def list_commissions(start_date: date | None = None, end_date: date | None = Non
         q = q.filter(func.date(CommissionEntry.earned_at) <= end_date)
     rows = q.order_by(CommissionEntry.earned_at.desc(), CommissionEntry.id.desc()).limit(2000).all()
     items = [_entry_data(row, db) for row in rows]
-    return {"count": len(items), "earned_total": sum(x["amount"] for x in items),
-            "paid_total": sum(x["paid_amount"] for x in items),
+    return {"count": len(items), "earned_total": sum(x["amount"] for x in items if x["status"] != "cancelled"),
+            "paid_total": sum(x["paid_amount"] for x in items if x["status"] != "cancelled"),
             "remaining_total": sum(x["remaining_amount"] for x in items), "items": items}
 
 @router.post("/commissions/{entry_id}/payments", status_code=201)
@@ -144,6 +144,8 @@ def pay_commission(entry_id: int, payload: CommissionPaymentCreate,
     entry = q.with_for_update().first()
     if entry is None:
         raise HTTPException(404, "Commission introuvable")
+    if entry.status == "cancelled":
+        raise HTTPException(409, "Une commission annulée ne peut pas être réglée")
     paid = int(db.query(func.coalesce(func.sum(CommissionPayment.amount), 0))
                .filter(CommissionPayment.commission_entry_id == entry.id).scalar() or 0)
     if payload.amount > entry.amount - paid:
