@@ -1,6 +1,8 @@
 from datetime import date
+from io import BytesIO
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -279,3 +281,124 @@ def update_attendance(record_id:int,payload:AttendanceCreate,user:User=Depends(g
         setattr(row,key,getattr(payload,key))
     db.commit();db.refresh(row)
     return _attendance_data(row,employee)
+
+
+def _payroll_period_for_export(period_id,user,db):
+    q=db.query(PayrollPeriod).filter(PayrollPeriod.id==period_id,PayrollPeriod.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(PayrollPeriod.station_id==user.station_id)
+    period=q.first()
+    if not period:raise HTTPException(404,"Période de paie introuvable")
+    return period,_period_data(period,db)
+
+def _payroll_line_for_export(line_id,user,db):
+    q=db.query(PayrollLine).join(PayrollPeriod).filter(
+      PayrollLine.id==line_id,PayrollPeriod.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(PayrollPeriod.station_id==user.station_id)
+    line=q.first()
+    if not line:raise HTTPException(404,"Bulletin introuvable")
+    period,data=_payroll_period_for_export(line.payroll_period_id,user,db)
+    item=next(x for x in data["lines"] if x["id"]==line.id)
+    return period,data,item
+
+def _bulletin_pdf(period,data,line):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle
+    output=BytesIO()
+    doc=SimpleDocTemplate(output,pagesize=A4,rightMargin=18*mm,leftMargin=18*mm,topMargin=16*mm,bottomMargin=16*mm)
+    styles=getSampleStyleSheet()
+    story=[Paragraph("AUTO LAVAGE MANAGER",styles["Title"]),Paragraph("BULLETIN DE PAIE — ÉTAT DE GESTION",styles["Heading2"]),
+      Paragraph(f"Période : {period.start_date} au {period.end_date} ({'Hebdomadaire' if period.period_type=='weekly' else 'Mensuelle'})",styles["Normal"]),
+      Spacer(1,5*mm),Paragraph(f"<b>Salarié :</b> {line.employee_name}",styles["Normal"]),
+      Paragraph(f"<b>Matricule :</b> {line.employee_number} · <b>Poste :</b> {line.job_title}",styles["Normal"]),
+      Paragraph(f"<b>Statut de la paie :</b> {period.status}",styles["Normal"]),Spacer(1,5*mm)]
+    rows=[["Éléments de rémunération","Montant (FCFA)"],
+      ["Salaire de base",line.base_salary],["Primes",line.bonuses],["Heures supplémentaires valorisées",line.overtime_pay],
+      ["Salaire brut",line.gross_salary],["Retenues",line.deductions],["Cotisations salariales",line.employee_contributions],
+      ["Déduction des avances",line.advance_deduction],["NET À PAYER",line.net_due],
+      ["Montant déjà réglé",data_line_paid(line.id,data)],["SOLDE RESTANT",max(line.net_due-data_line_paid(line.id,data),0)],
+      ["Cotisations patronales (information)",line.employer_contributions]]
+    table=Table([[a,(f"{b:,}".replace(","," ") if isinstance(b,int) else b)] for a,b in rows],colWidths=[110*mm,55*mm])
+    table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#174A6E")),("TEXTCOLOR",(0,0),(-1,0),colors.white),
+      ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("GRID",(0,0),(-1,-1),0.4,colors.HexColor("#D8E2E9")),
+      ("PADDING",(0,0),(-1,-1),7),("ALIGN",(1,1),(1,-1),"RIGHT"),
+      ("BACKGROUND",(0,9),(-1,9),colors.HexColor("#E7F0F6")),("FONTNAME",(0,9),(-1,9),"Helvetica-Bold")]))
+    story.extend([table,Spacer(1,6*mm),Paragraph("Historique des règlements",styles["Heading3"])])
+    pays=[["Date","Moyen","Référence","Montant (FCFA)"]]
+    for p in next(x for x in data["lines"] if x["id"]==line.id)["payments"]:
+      pays.append([str(p["paid_at"]),p["method"],p["reference"] or "—",f"{p['amount']:,}".replace(","," ")])
+    if len(pays)==1:pays.append(["—","Aucun règlement","—","0"])
+    pt=Table(pays,colWidths=[48*mm,35*mm,45*mm,37*mm],repeatRows=1)
+    pt.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#E7F0F6")),("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#D8E2E9")),("PADDING",(0,0),(-1,-1),5),("FONTSIZE",(0,0),(-1,-1),8)]))
+    story.extend([pt,Spacer(1,8*mm),Paragraph("Document de gestion généré par AUTO LAVAGE MANAGER. Les taux et règles légales doivent être validés avant utilisation comme bulletin réglementaire officiel.",styles["Italic"])])
+    doc.build(story);output.seek(0);return output
+
+def data_line_paid(line_id,data):
+    line=next(x for x in data["lines"] if x["id"]==line_id)
+    return line["paid_amount"]
+
+@router.get("/payroll/{period_id}/export")
+def export_payroll_period(period_id:int,format:Literal["pdf","xlsx"]="xlsx",
+    user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    period,data=_payroll_period_for_export(period_id,user,db)
+    filename=f"etat_paie_{period.start_date}_{period.end_date}"
+    if format=="xlsx":
+      from openpyxl import Workbook
+      from openpyxl.styles import Font,PatternFill,Alignment
+      from openpyxl.utils import get_column_letter
+      wb=Workbook();ws=wb.active;ws.title="Récapitulatif"
+      ws.append(["AUTO LAVAGE MANAGER — ÉTAT DE PAIE"])
+      ws.append(["Période",str(period.start_date),"au",str(period.end_date),"Type",period.period_type,"Statut",period.status])
+      ws.append(["Matricule","Salarié","Poste","Base","Primes","Heures sup.","Brut","Retenues","Cot. salariales","Avances","Net dû","Payé","Reste","Cot. patronales"])
+      for x in data["lines"]:
+        ws.append([x["employee_number"],x["employee_name"],x["job_title"],x["base_salary"],x["bonuses"],x["overtime_pay"],x["gross_salary"],x["deductions"],x["employee_contributions"],x["advance_deduction"],x["net_due"],x["paid_amount"],x["remaining_amount"],x["employer_contributions"]])
+      pay=wb.create_sheet("Règlements");pay.append(["Matricule","Salarié","Date","Moyen","Référence","Montant FCFA"])
+      for x in data["lines"]:
+        for p in x["payments"]:pay.append([x["employee_number"],x["employee_name"],str(p["paid_at"]),p["method"],p["reference"] or "",p["amount"]])
+      for sheet in wb.worksheets:
+        sheet.freeze_panes="A3" if sheet.title=="Récapitulatif" else "A2";sheet.auto_filter.ref=sheet.dimensions
+        for cell in sheet[1]:cell.font=Font(bold=True,color="FFFFFF");cell.fill=PatternFill("solid",fgColor="174A6E")
+        for col in sheet.columns:
+          width=min(max(max(len(str(c.value or "")) for c in col)+2,12),38);sheet.column_dimensions[get_column_letter(col[0].column)].width=width
+        for row in sheet.iter_rows():
+          for cell in row:cell.alignment=Alignment(vertical="center")
+      out=BytesIO();wb.save(out);out.seek(0)
+      return StreamingResponse(out,media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":f'attachment; filename="{filename}.xlsx"'})
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4,landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate,Paragraph,Spacer,Table,TableStyle,PageBreak
+    out=BytesIO();doc=SimpleDocTemplate(out,pagesize=landscape(A4),rightMargin=10*mm,leftMargin=10*mm,topMargin=12*mm,bottomMargin=12*mm)
+    styles=getSampleStyleSheet()
+    story=[Paragraph("AUTO LAVAGE MANAGER — ÉTAT RÉCAPITULATIF DE PAIE",styles["Title"]),
+      Paragraph(f"Période : {period.start_date} au {period.end_date} · {period.period_type} · Statut : {period.status}",styles["Normal"]),
+      Spacer(1,5*mm)]
+    rows=[["Matricule","Salarié","Brut","Retenues","Cot. sal.","Avances","Net dû","Payé","Reste"]]
+    for x in data["lines"]:
+      rows.append([x["employee_number"],x["employee_name"][:24],*[f"{x[k]:,}".replace(","," ") for k in ("gross_salary","deductions","employee_contributions","advance_deduction","net_due","paid_amount","remaining_amount")]])
+    if len(rows)==1:rows.append(["—","Aucun salarié","0","0","0","0","0","0","0"])
+    table=Table(rows,repeatRows=1,colWidths=[23*mm,43*mm]+[22*mm]*7)
+    table.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#174A6E")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#D8E2E9")),("FONTSIZE",(0,0),(-1,-1),7),("PADDING",(0,0),(-1,-1),4)]))
+    story.extend([table,Spacer(1,5*mm),Paragraph(f"Brut total : {data['gross_total']:,} FCFA · Net dû : {data['net_due_total']:,} FCFA · Réglé : {data['paid_total']:,} FCFA · Reste : {data['remaining_total']:,} FCFA".replace(","," "),styles["Normal"]),PageBreak()])
+    for idx,x in enumerate(data["lines"]):
+      line=db.query(PayrollLine).filter(PayrollLine.id==x["id"]).first()
+      story.append(Paragraph(f"BULLETIN INDIVIDUEL — {x['employee_name']}",styles["Heading2"]))
+      story.append(Paragraph(f"Matricule : {x['employee_number']} · Poste : {x['job_title']} · Période : {period.start_date} au {period.end_date}",styles["Normal"]))
+      values=[["Élément","Montant FCFA"],["Salaire de base",x["base_salary"]],["Primes",x["bonuses"]],["Heures supplémentaires",x["overtime_pay"]],["Salaire brut",x["gross_salary"]],["Retenues",x["deductions"]],["Cotisations salariales",x["employee_contributions"]],["Déduction des avances",x["advance_deduction"]],["NET À PAYER",x["net_due"]],["Déjà réglé",x["paid_amount"]],["Reste à payer",x["remaining_amount"]],["Cotisations patronales (information)",x["employer_contributions"]]]
+      t=Table([[a,(f"{v:,}".replace(","," ") if isinstance(v,int) else v)] for a,v in values],colWidths=[110*mm,55*mm])
+      t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#174A6E")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("GRID",(0,0),(-1,-1),0.3,colors.HexColor("#D8E2E9")),("PADDING",(0,0),(-1,-1),5),("ALIGN",(1,1),(1,-1),"RIGHT")]))
+      story.extend([Spacer(1,4*mm),t,Spacer(1,3*mm),Paragraph("Document de gestion — règles légales et taux à valider avant usage officiel.",styles["Italic"])])
+      if idx<len(data["lines"])-1:story.append(PageBreak())
+    doc.build(story);out.seek(0)
+    return StreamingResponse(out,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="{filename}.pdf"'})
+
+@router.get("/payroll/lines/{line_id}/bulletin")
+def export_employee_bulletin(line_id:int,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    period,data,line=_payroll_line_for_export(line_id,user,db)
+    record=db.query(PayrollLine).filter(PayrollLine.id==line_id).first()
+    out=_bulletin_pdf(period,data,record)
+    safe="".join(c for c in line["employee_number"] if c.isalnum() or c in "-_") or str(line_id)
+    return StreamingResponse(out,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="bulletin_{safe}_{period.end_date}.pdf"'})
