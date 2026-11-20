@@ -50,3 +50,15 @@ class TicketRead(BaseModel):
     created_at:object
     lines:list[TicketLineRead]
     payments:list[PaymentRead]
+
+
+class TicketRefundRead(BaseModel):
+    id: int
+    payment_id: int
+    amount: int
+    method: str
+    reference: str | None
+    reason: str
+    refunded_at: object
+
+
