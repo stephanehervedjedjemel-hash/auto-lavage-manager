@@ -6,7 +6,7 @@ with SQLAlchemy create_all(). Existing tables are left intact.
 from alembic import op
 import sqlalchemy as sa
 revision = "20261120_commissions"
-down_revision = None
+down_revision = "0010_inventory"
 branch_labels = None
 depends_on = None
 
