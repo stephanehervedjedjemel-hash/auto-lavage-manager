@@ -225,7 +225,7 @@ def export_financial_report(
         Spacer(1, 8*mm)]
     rows = [["Indicateur", "Montant (FCFA)"]]
     for label, key in [
-        ("Chiffre d'affaires", "revenue"), ("Encaissements", "collections"),
+        ("Chiffre d'affaires", "revenue"), ("Encaissements nets", "collections"), ("Remboursements", "refunds_total"),
         ("Créances clients", "receivables_outstanding"), ("Charges engagées", "expenses_committed"),
         ("Décaissements", "expense_disbursements"), ("Dettes de charges", "expense_liabilities_for_period"),
         ("Dotations aux amortissements", "depreciation_charge"),
