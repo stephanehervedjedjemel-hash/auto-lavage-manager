@@ -256,3 +256,32 @@ class AttendanceRecord(Base):
     leave_type: Mapped[str|None]=mapped_column(String(30))
     note: Mapped[str|None]=mapped_column(String(500))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class SalaryAdvance(Base):
+    __tablename__="salary_advances"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    employee_id: Mapped[int]=mapped_column(ForeignKey("employees.id",ondelete="RESTRICT"),index=True,nullable=False)
+    requested_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    decided_by: Mapped[int|None]=mapped_column(ForeignKey("users.id"))
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    reason: Mapped[str]=mapped_column(String(500),nullable=False)
+    status: Mapped[str]=mapped_column(String(20),default="pending",nullable=False)
+    requested_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+    decided_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str|None]=mapped_column(String(500))
+
+class AdvanceRepayment(Base):
+    __tablename__="advance_repayments"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    advance_id: Mapped[int]=mapped_column(ForeignKey("salary_advances.id",ondelete="RESTRICT"),index=True,nullable=False)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    recorded_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    source: Mapped[str]=mapped_column(String(20),default="manual",nullable=False)
+    reference: Mapped[str|None]=mapped_column(String(100))
+    note: Mapped[str|None]=mapped_column(String(500))
+    repaid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())

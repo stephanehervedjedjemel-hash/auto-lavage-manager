@@ -402,3 +402,99 @@ def export_employee_bulletin(line_id:int,user:User=Depends(get_current_user),db:
     out=_bulletin_pdf(period,data,record)
     safe="".join(c for c in line["employee_number"] if c.isalnum() or c in "-_") or str(line_id)
     return StreamingResponse(out,media_type="application/pdf",headers={"Content-Disposition":f'attachment; filename="bulletin_{safe}_{period.end_date}.pdf"'})
+
+
+class AdvanceCreate(BaseModel):
+    employee_id:int=Field(gt=0)
+    amount:int=Field(gt=0,le=2_000_000_000)
+    reason:str=Field(min_length=3,max_length=500)
+
+class AdvanceDecision(BaseModel):
+    note:str|None=Field(default=None,max_length=500)
+
+class AdvanceRepaymentCreate(BaseModel):
+    amount:int=Field(gt=0,le=2_000_000_000)
+    reference:str|None=Field(default=None,max_length=100)
+    note:str|None=Field(default=None,max_length=500)
+
+def _advance_data(row,db):
+    employee=db.query(Employee).filter(Employee.id==row.employee_id).first()
+    repaid=int(db.query(func.coalesce(func.sum(AdvanceRepayment.amount),0)).filter(AdvanceRepayment.advance_id==row.id).scalar() or 0)
+    return {"id":row.id,"employee_id":row.employee_id,"employee_number":employee.employee_number,
+      "employee_name":employee.full_name,"station_id":row.station_id,"amount":row.amount,
+      "repaid_amount":repaid,"remaining_amount":row.amount-repaid,"reason":row.reason,
+      "status":row.status,"requested_at":row.requested_at,"decided_at":row.decided_at,
+      "decision_note":row.decision_note,"repayments":[{"id":x.id,"amount":x.amount,"source":x.source,
+      "reference":x.reference,"note":x.note,"repaid_at":x.repaid_at} for x in db.query(AdvanceRepayment).filter(
+      AdvanceRepayment.advance_id==row.id).order_by(AdvanceRepayment.repaid_at).all()]}
+
+@router.get("/advances")
+def list_advances(status:Literal["pending","approved","partially_repaid","repaid","rejected"]|None=None,
+                  station_id:int|None=None,employee_id:int|None=None,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    q=db.query(SalaryAdvance).filter(SalaryAdvance.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(SalaryAdvance.station_id==user.station_id)
+    elif station_id is not None:q=q.filter(SalaryAdvance.station_id==station_id)
+    if status:q=q.filter(SalaryAdvance.status==status)
+    if employee_id:q=q.filter(SalaryAdvance.employee_id==employee_id)
+    return [_advance_data(x,db) for x in q.order_by(SalaryAdvance.requested_at.desc()).limit(500).all()]
+
+@router.get("/advances/summary")
+def advance_summary(user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    q=db.query(SalaryAdvance).filter(SalaryAdvance.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(SalaryAdvance.station_id==user.station_id)
+    rows=q.all()
+    items=[_advance_data(x,db) for x in rows]
+    return {"requests_count":len(rows),"pending_amount":sum(x["amount"] for x in items if x["status"]=="pending"),
+      "approved_amount":sum(x["amount"] for x in items if x["status"] in ("approved","partially_repaid","repaid")),
+      "outstanding_amount":sum(x["remaining_amount"] for x in items if x["status"] in ("approved","partially_repaid"))}
+
+@router.post("/advances",status_code=201)
+def request_advance(payload:AdvanceCreate,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    q=db.query(Employee).filter(Employee.id==payload.employee_id,Employee.company_id==user.company_id,Employee.is_active.is_(True))
+    if user.station_id is not None:q=q.filter(Employee.station_id==user.station_id)
+    employee=q.first()
+    if not employee:raise HTTPException(404,"Salarié actif introuvable ou non autorisé")
+    row=SalaryAdvance(company_id=user.company_id,station_id=employee.station_id,employee_id=employee.id,
+      requested_by=user.id,amount=payload.amount,reason=payload.reason,status="pending")
+    db.add(row);db.commit();db.refresh(row)
+    return _advance_data(row,db)
+
+@router.post("/advances/{advance_id}/approve")
+def approve_advance(advance_id:int,payload:AdvanceDecision,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    if user.role not in MANAGERS:raise HTTPException(403,"Validation des avances réservée aux responsables")
+    q=db.query(SalaryAdvance).filter(SalaryAdvance.id==advance_id,SalaryAdvance.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(SalaryAdvance.station_id==user.station_id)
+    row=q.with_for_update().first()
+    if not row:raise HTTPException(404,"Demande d'avance introuvable")
+    if row.status!="pending":raise HTTPException(409,"Cette demande a déjà été traitée")
+    row.status="approved";row.decided_by=user.id;row.decided_at=func.now();row.decision_note=payload.note
+    db.commit();db.refresh(row)
+    return _advance_data(row,db)
+
+@router.post("/advances/{advance_id}/reject")
+def reject_advance(advance_id:int,payload:AdvanceDecision,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    if user.role not in MANAGERS:raise HTTPException(403,"Rejet des avances réservé aux responsables")
+    q=db.query(SalaryAdvance).filter(SalaryAdvance.id==advance_id,SalaryAdvance.company_id==user.company_id)
+    if user.station_id is not None:q=q.filter(SalaryAdvance.station_id==user.station_id)
+    row=q.with_for_update().first()
+    if not row:raise HTTPException(404,"Demande d'avance introuvable")
+    if row.status!="pending":raise HTTPException(409,"Cette demande a déjà été traitée")
+    row.status="rejected";row.decided_by=user.id;row.decided_at=func.now();row.decision_note=payload.note
+    db.commit();db.refresh(row)
+    return _advance_data(row,db)
+
+@router.post("/advances/{advance_id}/repayments",status_code=201)
+def repay_advance(advance_id:int,payload:AdvanceRepaymentCreate,user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    if user.role not in MANAGERS:raise HTTPException(403,"Enregistrement des remboursements réservé aux responsables")
+    q=db.query(SalaryAdvance).filter(SalaryAdvance.id==advance_id,SalaryAdvance.company_id==user.company_id,
+      SalaryAdvance.status.in_(["approved","partially_repaid"]))
+    if user.station_id is not None:q=q.filter(SalaryAdvance.station_id==user.station_id)
+    row=q.with_for_update().first()
+    if not row:raise HTTPException(404,"Avance approuvée introuvable")
+    paid=int(db.query(func.coalesce(func.sum(AdvanceRepayment.amount),0)).filter(AdvanceRepayment.advance_id==row.id).scalar() or 0)
+    if payload.amount>row.amount-paid:raise HTTPException(422,"Le remboursement dépasse le solde de l'avance")
+    db.add(AdvanceRepayment(advance_id=row.id,company_id=user.company_id,station_id=row.station_id,
+      recorded_by=user.id,amount=payload.amount,source="manual",reference=payload.reference,note=payload.note))
+    row.status="repaid" if payload.amount==row.amount-paid else "partially_repaid"
+    db.commit();db.refresh(row)
+    return _advance_data(row,db)
