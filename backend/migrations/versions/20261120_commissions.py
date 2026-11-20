@@ -16,12 +16,13 @@ def upgrade():
     if inspector.has_table("ticket_lines"):
         columns = {c["name"] for c in inspector.get_columns("ticket_lines")}
         if "employee_id" not in columns:
-            op.add_column("ticket_lines", sa.Column("employee_id", sa.Integer(), nullable=True))
-            op.create_index("ix_ticket_lines_employee_id", "ticket_lines", ["employee_id"])
-            op.create_foreign_key(
-                "fk_ticket_lines_employee_id_employees",
-                "ticket_lines", "employees", ["employee_id"], ["id"], ondelete="RESTRICT"
-            )
+            with op.batch_alter_table("ticket_lines") as batch:
+                batch.add_column(sa.Column("employee_id", sa.Integer(), nullable=True))
+                batch.create_index("ix_ticket_lines_employee_id", ["employee_id"])
+                batch.create_foreign_key(
+                    "fk_ticket_lines_employee_id_employees",
+                    "employees", ["employee_id"], ["id"], ondelete="RESTRICT"
+                )
     # Create any missing tables from the current metadata, including the commission ledger.
     from app import models  # noqa: F401
     from app.db import Base
@@ -38,6 +39,7 @@ def downgrade():
         columns = {c["name"] for c in inspector.get_columns("ticket_lines")}
         if "employee_id" in columns:
             indexes = {i["name"] for i in inspector.get_indexes("ticket_lines")}
-            if "ix_ticket_lines_employee_id" in indexes:
-                op.drop_index("ix_ticket_lines_employee_id", table_name="ticket_lines")
-            op.drop_column("ticket_lines", "employee_id")
+            with op.batch_alter_table("ticket_lines") as batch:
+                if "ix_ticket_lines_employee_id" in indexes:
+                    batch.drop_index("ix_ticket_lines_employee_id")
+                batch.drop_column("employee_id")
