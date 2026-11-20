@@ -18,7 +18,7 @@ def _ticket_read(ticket:Ticket,db:Session):
         "ticket_number":ticket.ticket_number,"customer_name":ticket.customer_name,"customer_phone":ticket.customer_phone,
         "vehicle_type":ticket.vehicle_type,"vehicle_registration":ticket.vehicle_registration,
         "subtotal":ticket.subtotal,"discount":ticket.discount,"total":ticket.total,"paid_amount":paid,
-        "remaining_amount":ticket.total-paid,"status":ticket.status,"created_at":ticket.created_at,
+        "remaining_amount":0 if ticket.status=="cancelled" else ticket.total-paid,"status":ticket.status,"created_at":ticket.created_at,
         "lines":[{"id":x.id,"service_id":x.service_id,"service_code":x.service_code,"service_name":x.service_name,"quantity":x.quantity,"unit_price":x.unit_price,"line_total":x.line_total,"employee_id":x.employee_id} for x in lines],"payments":payments,"refunds":db.query(TicketRefund).filter(TicketRefund.ticket_id==ticket.id).order_by(TicketRefund.id).all(),"refunded_amount":db.query(func.coalesce(func.sum(TicketRefund.amount),0)).filter(TicketRefund.ticket_id==ticket.id).scalar() or 0}
 def _visible_ticket(ticket_id:int,user:User,db:Session):
     q=db.query(Ticket).filter(Ticket.id==ticket_id,Ticket.company_id==user.company_id)
