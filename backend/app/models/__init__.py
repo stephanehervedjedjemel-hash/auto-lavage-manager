@@ -387,3 +387,18 @@ class CommissionPayment(Base):
     method: Mapped[str]=mapped_column(String(30),nullable=False)
     reference: Mapped[str|None]=mapped_column(String(100))
     paid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class TicketRefund(Base):
+    __tablename__ = "ticket_refunds"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("tickets.id", ondelete="RESTRICT"), index=True, nullable=False)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id", ondelete="RESTRICT"), index=True, nullable=False)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True, nullable=False)
+    station_id: Mapped[int] = mapped_column(ForeignKey("stations.id"), index=True, nullable=False)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    method: Mapped[str] = mapped_column(String(30), nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(100))
+    reason: Mapped[str] = mapped_column(String(250), nullable=False)
+    refunded_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    refunded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
