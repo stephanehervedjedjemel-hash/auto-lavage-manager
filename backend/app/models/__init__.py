@@ -52,3 +52,42 @@ class Service(Base):
     duration_minutes: Mapped[int|None]=mapped_column(Integer)
     is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class Ticket(Base):
+    __tablename__="tickets"
+    __table_args__=(UniqueConstraint("company_id","ticket_number",name="uq_ticket_company_number"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    ticket_number: Mapped[str]=mapped_column(String(50),nullable=False)
+    customer_name: Mapped[str|None]=mapped_column(String(160))
+    customer_phone: Mapped[str|None]=mapped_column(String(40))
+    vehicle_type: Mapped[str]=mapped_column(String(60),nullable=False)
+    vehicle_registration: Mapped[str|None]=mapped_column(String(30))
+    subtotal: Mapped[int]=mapped_column(Integer,nullable=False)
+    discount: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    total: Mapped[int]=mapped_column(Integer,nullable=False)
+    status: Mapped[str]=mapped_column(String(20),default="unpaid",nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+class TicketLine(Base):
+    __tablename__="ticket_lines"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    ticket_id: Mapped[int]=mapped_column(ForeignKey("tickets.id",ondelete="CASCADE"),index=True,nullable=False)
+    service_id: Mapped[int]=mapped_column(ForeignKey("services.id"),nullable=False)
+    service_code: Mapped[str]=mapped_column(String(40),nullable=False)
+    service_name: Mapped[str]=mapped_column(String(160),nullable=False)
+    quantity: Mapped[int]=mapped_column(Integer,nullable=False)
+    unit_price: Mapped[int]=mapped_column(Integer,nullable=False)
+    line_total: Mapped[int]=mapped_column(Integer,nullable=False)
+class Payment(Base):
+    __tablename__="payments"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    ticket_id: Mapped[int]=mapped_column(ForeignKey("tickets.id",ondelete="RESTRICT"),index=True,nullable=False)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    method: Mapped[str]=mapped_column(String(30),nullable=False)
+    reference: Mapped[str|None]=mapped_column(String(100))
+    received_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
