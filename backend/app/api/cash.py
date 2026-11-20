@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import CashSession, CashMovement, Payment, Station, User
+from app.models import CashSession, CashMovement, Payment, TicketRefund, Station, User
 
 router=APIRouter()
 
@@ -33,7 +33,7 @@ def cash_totals(session:CashSession,db:Session):
     )
     if session.closed_at: cash_payments=cash_payments.filter(Payment.created_at<=session.closed_at)
     collected=int(cash_payments.scalar() or 0)
-    q=db.query(CashMovement).filter(CashMovement.session_id==session.id)
+    cash_refunds=db.query(func.coalesce(func.sum(TicketRefund.amount),0)).filter(\n        TicketRefund.company_id==session.company_id,TicketRefund.station_id==session.station_id,\n        TicketRefund.method=="cash",TicketRefund.refunded_at>=session.opened_at\n    )\n    if session.closed_at: cash_refunds=cash_refunds.filter(TicketRefund.refunded_at<=session.closed_at)\n    collected-=int(cash_refunds.scalar() or 0)\n    q=db.query(CashMovement).filter(CashMovement.session_id==session.id)
     if session.closed_at: q=q.filter(CashMovement.created_at<=session.closed_at)
     movements=q.all()
     inflows=sum(x.amount for x in movements if x.direction=="in")
@@ -60,9 +60,7 @@ def cash_summary(station_id:int|None=None,user:User=Depends(get_current_user),db
     if user.station_id is not None: payments=payments.filter(Payment.station_id==user.station_id)
     elif station_id is not None: payments=payments.filter(Payment.station_id==station_id)
     all_payments=payments.all()
-    total_collected=sum(p.amount for p in all_payments)
-    by_method={}
-    for p in all_payments: by_method[p.method]=by_method.get(p.method,0)+p.amount
+    refunds=db.query(TicketRefund).filter(TicketRefund.company_id==user.company_id)\n    if user.station_id is not None: refunds=refunds.filter(TicketRefund.station_id==user.station_id)\n    elif station_id is not None: refunds=refunds.filter(TicketRefund.station_id==station_id)\n    all_refunds=refunds.all()\n    by_method={}\n    for p in all_payments: by_method[p.method]=by_method.get(p.method,0)+p.amount\n    for refund in all_refunds: by_method[refund.method]=by_method.get(refund.method,0)-refund.amount\n    total_collected=sum(by_method.values())
     return {"total_collected":total_collected,"payments_count":len(all_payments),
       "by_method":by_method,"open_sessions":[serialize(s,db) for s in sessions if s.status=="open"],
       "recent_sessions":[serialize(s,db) for s in sessions]}
