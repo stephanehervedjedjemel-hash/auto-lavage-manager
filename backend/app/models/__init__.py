@@ -172,3 +172,69 @@ class FixedAsset(Base):
     depreciation_method: Mapped[str]=mapped_column(String(30),default="straight_line",nullable=False)
     status: Mapped[str]=mapped_column(String(20),default="active",nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+
+class Employee(Base):
+    __tablename__="employees"
+    __table_args__=(UniqueConstraint("company_id","employee_number",name="uq_employee_company_number"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    employee_number: Mapped[str]=mapped_column(String(40),nullable=False)
+    full_name: Mapped[str]=mapped_column(String(180),nullable=False)
+    phone: Mapped[str|None]=mapped_column(String(40))
+    email: Mapped[str|None]=mapped_column(String(255))
+    job_title: Mapped[str]=mapped_column(String(120),nullable=False)
+    contract_type: Mapped[str]=mapped_column(String(30),default="permanent",nullable=False)
+    hire_date: Mapped[date]=mapped_column(Date,nullable=False)
+    end_date: Mapped[date|None]=mapped_column(Date)
+    salary_basis: Mapped[str]=mapped_column(String(20),default="monthly",nullable=False)
+    base_salary: Mapped[int]=mapped_column(Integer,nullable=False)
+    is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class PayrollPeriod(Base):
+    __tablename__="payroll_periods"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    created_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    validated_by: Mapped[int|None]=mapped_column(ForeignKey("users.id"))
+    period_type: Mapped[str]=mapped_column(String(20),nullable=False)
+    start_date: Mapped[date]=mapped_column(Date,nullable=False,index=True)
+    end_date: Mapped[date]=mapped_column(Date,nullable=False)
+    status: Mapped[str]=mapped_column(String(20),default="draft",nullable=False)
+    validated_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
+
+class PayrollLine(Base):
+    __tablename__="payroll_lines"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    payroll_period_id: Mapped[int]=mapped_column(ForeignKey("payroll_periods.id",ondelete="CASCADE"),index=True,nullable=False)
+    employee_id: Mapped[int]=mapped_column(ForeignKey("employees.id"),index=True,nullable=False)
+    employee_number: Mapped[str]=mapped_column(String(40),nullable=False)
+    employee_name: Mapped[str]=mapped_column(String(180),nullable=False)
+    job_title: Mapped[str]=mapped_column(String(120),nullable=False)
+    base_salary: Mapped[int]=mapped_column(Integer,nullable=False)
+    bonuses: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    overtime_pay: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    gross_salary: Mapped[int]=mapped_column(Integer,nullable=False)
+    deductions: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    employee_contributions: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    employer_contributions: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    advance_deduction: Mapped[int]=mapped_column(Integer,default=0,nullable=False)
+    net_due: Mapped[int]=mapped_column(Integer,nullable=False)
+    note: Mapped[str|None]=mapped_column(String(500))
+
+class PayrollPayment(Base):
+    __tablename__="payroll_payments"
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    payroll_line_id: Mapped[int]=mapped_column(ForeignKey("payroll_lines.id",ondelete="RESTRICT"),index=True,nullable=False)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int]=mapped_column(ForeignKey("stations.id"),index=True,nullable=False)
+    paid_by: Mapped[int]=mapped_column(ForeignKey("users.id"),nullable=False)
+    amount: Mapped[int]=mapped_column(Integer,nullable=False)
+    method: Mapped[str]=mapped_column(String(30),nullable=False)
+    reference: Mapped[str|None]=mapped_column(String(100))
+    paid_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
