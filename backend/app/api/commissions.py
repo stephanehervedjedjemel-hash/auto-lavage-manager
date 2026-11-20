@@ -99,6 +99,8 @@ def create_commission_rule(payload: CommissionRuleCreate, user: User = Depends(g
 
 @router.get("/commission-rules")
 def list_commission_rules(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.role not in MANAGERS:
+        raise HTTPException(403, "Droits de consultation des barèmes requis")
     q = db.query(CommissionRule).filter(CommissionRule.company_id == user.company_id)
     if user.station_id is not None:
         q = q.filter((CommissionRule.station_id.is_(None)) | (CommissionRule.station_id == user.station_id))
@@ -111,6 +113,8 @@ def list_commission_rules(user: User = Depends(get_current_user), db: Session = 
 def list_commissions(start_date: date | None = None, end_date: date | None = None,
                      station_id: int | None = None, employee_id: int | None = None,
                      user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.role not in MANAGERS:
+        raise HTTPException(403, "Droits de consultation des commissions requis")
     q = db.query(CommissionEntry).filter(CommissionEntry.company_id == user.company_id)
     if user.station_id is not None:
         q = q.filter(CommissionEntry.station_id == user.station_id)
