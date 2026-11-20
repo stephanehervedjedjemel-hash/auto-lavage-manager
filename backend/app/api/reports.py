@@ -359,3 +359,126 @@ def station_profitability_report(
             "Les indicateurs sont des données de gestion et ne constituent pas une comptabilité certifiée.",
         ],
     }
+
+
+def _asset_register_rows(as_of, station_id, user, db):
+    query = db.query(FixedAsset, Station.name).join(Station, Station.id == FixedAsset.station_id).filter(
+        FixedAsset.company_id == user.company_id,
+        Station.company_id == user.company_id,
+    )
+    if user.station_id is not None:
+        query = query.filter(FixedAsset.station_id == user.station_id)
+    elif station_id is not None:
+        station = db.query(Station).filter(
+            Station.id == station_id, Station.company_id == user.company_id
+        ).first()
+        if station is None:
+            raise HTTPException(404, "Station introuvable dans votre entreprise")
+        query = query.filter(FixedAsset.station_id == station_id)
+    rows = []
+    for asset, station_name in query.order_by(FixedAsset.acquisition_date.asc(), FixedAsset.asset_code.asc()).limit(2000).all():
+        values = _asset_accumulated(asset, as_of)
+        months = 0 if as_of < asset.in_service_date else (
+            (as_of.year - asset.in_service_date.year) * 12 + as_of.month - asset.in_service_date.month + 1
+        )
+        months = min(max(months, 0), asset.useful_life_months)
+        monthly = round((asset.acquisition_cost - asset.residual_value) / asset.useful_life_months)
+        rows.append({
+            "asset_code": asset.asset_code, "name": asset.name, "category": asset.category,
+            "station": station_name, "supplier": asset.supplier or "",
+            "acquisition_date": asset.acquisition_date, "in_service_date": asset.in_service_date,
+            "acquisition_cost": asset.acquisition_cost, "residual_value": asset.residual_value,
+            "useful_life_months": asset.useful_life_months, "depreciation_months": months,
+            "monthly_depreciation": monthly, "accumulated_depreciation": values,
+            "net_book_value": max(asset.acquisition_cost - values, asset.residual_value),
+            "status": asset.status,
+        })
+    return rows
+
+
+@router.get("/assets/export")
+def export_asset_register(
+    format: Literal["pdf", "xlsx"] = "xlsx",
+    as_of: date | None = None,
+    station_id: int | None = Query(default=None, gt=0),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    cutoff = as_of or date.today()
+    rows = _asset_register_rows(cutoff, station_id, user, db)
+    filename = f"registre_immobilisations_{cutoff}"
+    if format == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        workbook = Workbook()
+        ws = workbook.active
+        ws.title = "Immobilisations"
+        ws.append(["Code", "Désignation", "Catégorie", "Station", "Fournisseur",
+            "Acquisition", "Mise en service", "Coût acquisition (FCFA)", "Valeur résiduelle (FCFA)",
+            "Durée (mois)", "Mois amortis", "Dotation mensuelle (FCFA)",
+            "Amortissements cumulés (FCFA)", "VNC (FCFA)", "Statut"])
+        for row in rows:
+            ws.append([row["asset_code"], row["name"], row["category"], row["station"], row["supplier"],
+                row["acquisition_date"], row["in_service_date"], row["acquisition_cost"], row["residual_value"],
+                row["useful_life_months"], row["depreciation_months"], row["monthly_depreciation"],
+                row["accumulated_depreciation"], row["net_book_value"], row["status"]])
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="174A6E")
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+        ws.row_dimensions[1].height = 34
+        for column in ws.columns:
+            width = min(max(max(len(str(cell.value or "")) for cell in column) + 2, 12), 32)
+            ws.column_dimensions[get_column_letter(column[0].column)].width = width
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        return StreamingResponse(output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}.xlsx"'})
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    output = BytesIO()
+    doc = SimpleDocTemplate(output, pagesize=landscape(A4), rightMargin=8*mm, leftMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm)
+    styles = getSampleStyleSheet()
+    story = [Paragraph("AUTO LAVAGE MANAGER — REGISTRE DES IMMOBILISATIONS", styles["Title"]),
+        Paragraph(f"Situation des amortissements au {cutoff} · {len(rows)} immobilisation(s)", styles["Normal"]),
+        Spacer(1, 5*mm)]
+    table_rows = [["Code / Désignation", "Station", "Acquisition", "Coût", "Résiduelle",
+        "Durée", "Mois", "Amort. cumulés", "VNC"]]
+    for row in rows:
+        table_rows.append([
+            Paragraph(f"{row['asset_code']}<br/>{row['name'][:38]}", styles["BodyText"]),
+            row["station"][:20], str(row["acquisition_date"]),
+            f"{row['acquisition_cost']:,}".replace(",", " "),
+            f"{row['residual_value']:,}".replace(",", " "), str(row["useful_life_months"]),
+            str(row["depreciation_months"]),
+            f"{row['accumulated_depreciation']:,}".replace(",", " "),
+            f"{row['net_book_value']:,}".replace(",", " "),
+        ])
+    if len(table_rows) == 1:
+        table_rows.append(["Aucune immobilisation", "—", "—", "0", "0", "—", "0", "0", "0"])
+    table = Table(table_rows, repeatRows=1, colWidths=[48*mm, 30*mm, 22*mm, 25*mm, 22*mm, 15*mm, 14*mm, 28*mm, 25*mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#174A6E")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#D8E2E9")),
+        ("FONTSIZE", (0,0), (-1,-1), 7), ("PADDING", (0,0), (-1,-1), 4),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("ALIGN", (3,1), (-1,-1), "RIGHT"),
+    ]))
+    story.extend([table, Spacer(1, 4*mm), Paragraph(
+        "Méthode linéaire indicative. La dotation mensuelle est calculée sur la base amortissable (coût moins valeur résiduelle). "
+        "Les règles de prorata, de sortie d'actif et de conformité comptable/fiscale doivent être validées par un professionnel.",
+        styles["Italic"])])
+    doc.build(story)
+    output.seek(0)
+    return StreamingResponse(output, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'})
