@@ -38,3 +38,17 @@ class User(Base):
     is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
     company: Mapped[Company]=relationship(back_populates="users")
+class Service(Base):
+    __tablename__="services"
+    __table_args__=(UniqueConstraint("company_id","station_id","code",name="uq_service_scope_code"),)
+    id: Mapped[int]=mapped_column(Integer,primary_key=True)
+    company_id: Mapped[int]=mapped_column(ForeignKey("companies.id",ondelete="CASCADE"),index=True,nullable=False)
+    station_id: Mapped[int|None]=mapped_column(ForeignKey("stations.id",ondelete="CASCADE"),index=True,nullable=True)
+    code: Mapped[str]=mapped_column(String(40),nullable=False)
+    name: Mapped[str]=mapped_column(String(160),nullable=False)
+    description: Mapped[str|None]=mapped_column(String(500))
+    category: Mapped[str]=mapped_column(String(60),default="lavage",nullable=False)
+    price: Mapped[int]=mapped_column(Integer,nullable=False)
+    duration_minutes: Mapped[int|None]=mapped_column(Integer)
+    is_active: Mapped[bool]=mapped_column(Boolean,default=True,nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),server_default=func.now())
