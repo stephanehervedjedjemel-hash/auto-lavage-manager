@@ -498,3 +498,38 @@ def repay_advance(advance_id:int,payload:AdvanceRepaymentCreate,user:User=Depend
     row.status="repaid" if payload.amount==row.amount-paid else "partially_repaid"
     db.commit();db.refresh(row)
     return _advance_data(row,db)
+
+
+@router.get("/payroll/costs")
+def payroll_costs(start_date:date|None=None,end_date:date|None=None,station_id:int|None=None,
+                  user:User=Depends(get_current_user),db:Session=Depends(get_db)):
+    q=db.query(PayrollPeriod).filter(PayrollPeriod.company_id==user.company_id,
+      PayrollPeriod.status.in_(["validated","paid"]))
+    if user.station_id is not None:q=q.filter(PayrollPeriod.station_id==user.station_id)
+    elif station_id is not None:
+      _station(user,station_id,db);q=q.filter(PayrollPeriod.station_id==station_id)
+    if start_date:q=q.filter(PayrollPeriod.end_date>=start_date)
+    if end_date:q=q.filter(PayrollPeriod.start_date<=end_date)
+    periods=q.order_by(PayrollPeriod.start_date).all()
+    result={}
+    totals={"periods_count":len(periods),"gross_salary":0,"employer_contributions":0,
+      "total_employer_cost":0,"net_due":0,"paid":0,"remaining":0}
+    for period in periods:
+      station=db.query(Station).filter(Station.id==period.station_id).first()
+      bucket=result.setdefault(period.station_id,{"station_id":period.station_id,
+        "station_name":station.name if station else "Station","periods_count":0,
+        "gross_salary":0,"employer_contributions":0,"total_employer_cost":0,
+        "net_due":0,"paid":0,"remaining":0})
+      data=_period_data(period,db)
+      values={"gross_salary":data["gross_total"],
+        "employer_contributions":data["employer_contributions_total"],
+        "total_employer_cost":data["gross_total"]+data["employer_contributions_total"],
+        "net_due":data["net_due_total"],"paid":data["paid_total"],"remaining":data["remaining_total"]}
+      bucket["periods_count"]+=1
+      for key,value in values.items():bucket[key]+=value;totals[key]+=value
+    return {"start_date":start_date,"end_date":end_date,"currency":"XOF",
+      "totals":totals,"stations":list(result.values()),
+      "notes":["Coût employeur indicatif = salaire brut + cotisations patronales saisies.",
+      "Les périodes sont incluses si elles chevauchent l'intervalle demandé.",
+      "Les règlements de paie restent dans le module Paie et ne sont pas ajoutés aux dépenses générales afin d'éviter un double comptage.",
+      "Les cotisations et taux doivent être vérifiés selon la réglementation applicable."]}
