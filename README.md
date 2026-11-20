@@ -1,29 +1,18 @@
 # AUTO LAVAGE MANAGER
+Logiciel SaaS de gestion multi-entreprises et multi-stations pour centres de lavage automobile.
 
-Application de gestion SaaS multi-entreprises et multi-stations pour centres de lavage automobile.
+## Stack
+React + Vite; API Python/FastAPI; PostgreSQL + SQLAlchemy; JWT HS256 et hachage scrypt; Docker Compose.
 
-## Objectifs
+## Démarrage local
+1. Copier .env.example vers .env.
+2. Remplacer les secrets POSTGRES_PASSWORD, JWT_SECRET et BOOTSTRAP_SECRET par des valeurs longues et aléatoires.
+3. Lancer docker compose up --build.
+4. API : http://localhost:8000 ; documentation : http://localhost:8000/docs.
+5. En développement les tables sont créées automatiquement. En production, utiliser Alembic.
 
-- Gestion des entreprises, stations et utilisateurs avec isolation stricte des données.
-- Catalogue des prestations et tarifs.
-- Tickets de lavage numérotés, imprimables et partageables en PDF.
-- Suivi des ventes, encaissements, dépenses et mouvements de caisse.
-- Gestion des immobilisations et amortissements.
-- Tableaux de bord et rapports exportables.
-- Interface responsive ordinateur/mobile, installable comme PWA.
-- Devise initiale : XOF (FCFA). Langue initiale : français.
+La route POST /api/v1/auth/register-owner initialise l'entreprise, la première station et le compte propriétaire avec BOOTSTRAP_SECRET. Puis POST /api/v1/auth/login permet de se connecter.
 
-## Architecture cible
+Tests : depuis backend/, exécuter pytest -q.
 
-- Frontend : React + Vite, PWA.
-- API : Python + FastAPI.
-- Base de données : PostgreSQL.
-- Déploiement : Docker et hébergement cloud.
-
-## Démarrage du développement
-
-Le dépôt vient d'être initialisé. Les fondations techniques seront ajoutées progressivement. Les fonctions de sécurité, l'authentification, l'isolation multi-tenant, les migrations et les tests devront être validés avant tout usage réel.
-
-## Statut
-
-Version de démarrage — non destinée à la production.
+Socle de développement uniquement. Migrations, tests d'isolation, audit, journalisation, sauvegardes et déploiement restent à finaliser avant usage réel.
